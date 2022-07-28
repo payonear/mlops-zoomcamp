@@ -1,14 +1,13 @@
 #!/usr/bin/env python
 # coding: utf-8
-
+import os
 import sys
 import pickle
 import pandas as pd
+from datetime import datetime
 
 
-def read_data(filename, categorical):
-    df = pd.read_parquet(filename)
-    
+def prepare_data(df, categorical):
     df['duration'] = df.dropOff_datetime - df.pickup_datetime
     df['duration'] = df.duration.dt.total_seconds() / 60
 
@@ -18,12 +17,40 @@ def read_data(filename, categorical):
     
     return df
 
+def read_data(filename, categorical):
+    S3_ENDPOINT_URL = os.getenv('S3_ENDPOINT_URL', '')
+    if S3_ENDPOINT_URL:
+        options = {
+            'client_kwargs': {
+            'endpoint_url': S3_ENDPOINT_URL
+            }
+        }
 
+        df = pd.read_parquet('s3://bucket/file.parquet', storage_options=options)
+    else:
+        df = pd.read_parquet(filename)
+
+    return prepare_data(df, categorical)
+
+
+def dt(hour, minute, second=0):
+    return datetime(2021, 1, 1, hour, minute, second)
+
+def get_input_path(year, month):
+    default_input_pattern = 'https://raw.githubusercontent.com/alexeygrigorev/datasets/master/nyc-tlc/fhv/fhv_tripdata_{year:04d}-{month:02d}.parquet'
+    input_pattern = os.getenv('INPUT_FILE_PATTERN', default_input_pattern)
+    return input_pattern.format(year=year, month=month)
+
+
+def get_output_path(year, month):
+    default_output_pattern = 's3://nyc-duration-prediction-alexey/taxi_type=fhv/year={year:04d}/month={month:02d}/predictions.parquet'
+    output_pattern = os.getenv('OUTPUT_FILE_PATTERN', default_output_pattern)
+    return output_pattern.format(year=year, month=month)
 
 
 def main(year, month):
-    input_file = f'https://raw.githubusercontent.com/alexeygrigorev/datasets/master/nyc-tlc/fhv/fhv_tripdata_{year:04d}-{month:02d}.parquet'
-    output_file = f'taxi_type=fhv_year={year:04d}_month={month:02d}.parquet'
+    input_file = get_input_path(year, month)
+    output_file = get_output_path(year, month)
 
 
     with open('model.bin', 'rb') as f_in:
